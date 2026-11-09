@@ -93,7 +93,6 @@ export function RequireAdmin() {
   const { user, isAdmin, loading } = useAuth();
   const location = useLocation();
   if (loading) return <FullPageLoader />;
-  if (!user) return <Navigate to={`/login?next=${encodeURIComponent(location.pathname)}`} replace />;
-  if (!isAdmin) return <Navigate to="/" replace />;
+  if (!user || !isAdmin) return <Navigate to={`/admin/login?next=${encodeURIComponent(location.pathname + location.search)}`} replace />;
   return <Outlet />;
 }

@@ -59,9 +59,9 @@ export function Footer() {
       </div>
       <div className="mt-12 flex flex-col gap-4 border-t border-white/[0.06] pt-6 text-xs leading-relaxed text-ink-400 md:flex-row md:items-start md:justify-between">
         <p className="max-w-3xl">
-          Movies and TV series supplied by AnimeDoc. Playback and availability depend on the streaming source.
+          Movies and series from AnimeDoc and BingeBox publishers. Playback and availability depend on the streaming source.
         </p>
-        <p className="shrink-0">© {new Date().getFullYear()} BingeBox</p>
+        <div className="flex shrink-0 flex-wrap items-center gap-5"><Link to="/admin/login" className="transition hover:text-white">Administrator sign in</Link><p>© {new Date().getFullYear()} BingeBox</p></div>
       </div>
     </footer>
   );

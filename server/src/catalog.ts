@@ -8,6 +8,7 @@ import { continueWatching } from './me.js';
 import { animedocEnabled, browseCatalog, discoverTitles, providerSection, providerTrending, refreshMovies, refreshMovieDetail, searchMovies } from './animedoc.js';
 import { parseSearchQuery } from './search-query.js';
 import { PUBLIC_GENRES } from './public-genres.js';
+import { hasStudioTitles, studioTitles } from './studio-catalog.js';
 
 export const catalogRouter = Router();
 
@@ -15,13 +16,16 @@ export const catalogRouter = Router();
 // recommendations, and progress continue to use stable local title IDs.
 catalogRouter.use(route(async (req, _res, next) => {
   if (req.method !== 'GET') return next();
-  if (['/home', '/browse/movie', '/browse/movies', '/browse/series', '/genres'].includes(req.path)) await refreshMovies();
+  const availableProvider = async (action: () => Promise<unknown>) => {
+    try { await action(); } catch (error) { if (!hasStudioTitles()) throw error; }
+  };
+  if (['/home', '/browse/movie', '/browse/movies', '/browse/series', '/genres'].includes(req.path)) await availableProvider(refreshMovies);
   if (['/search', '/search/suggest'].includes(req.path) && animedocEnabled()) {
     const { q, type } = parse(z.object({ q: z.string().trim().max(120).default(''), type: z.enum(['movie', 'series']).optional() }), req.query);
     const genres = db.prepare('SELECT slug, name FROM genres').all() as { slug: string; name: string }[];
     const parsed = parseSearchQuery(q, genres);
-    if (parsed.text.length >= 2) await searchMovies(parsed.text, type);
-    else if (q.length >= 2) await discoverTitles({ type, genre: parsed.genre?.slug, year: parsed.year });
+    if (parsed.text.length >= 2) await availableProvider(() => searchMovies(parsed.text, type));
+    else if (q.length >= 2) await availableProvider(() => discoverTitles({ type, genre: parsed.genre?.slug, year: parsed.year }));
   }
   const detail = req.path.match(/^\/titles\/(animedoc-[^/]+)(?:\/preview)?$/);
   if (detail) await refreshMovieDetail(detail[1]);
@@ -43,10 +47,16 @@ interface Row {
 // Home / browse pages
 // ---------------------------------------------------------------------------
 
+function section(type: 'movie' | 'series', a: Audience) {
+  try { return providerSection(type, a); }
+  catch (error) { if (!hasStudioTitles()) throw error; return { hero: [], rows: [] } as ReturnType<typeof providerSection>; }
+}
+
 catalogRouter.get('/home', (req, res) => {
   const a = audienceOf(req);
-  const movies = providerSection('movie', a);
-  const series = providerSection('series', a);
+  const movies = section('movie', a);
+  const series = section('series', a);
+  const own = studioTitles(a);
   const rows: Row[] = [];
   const signedIn = !!req.user && !!req.profile;
   if (signedIn) {
@@ -55,6 +65,7 @@ catalogRouter.get('/home', (req, res) => {
     const list = myListCards(req.profile!.id, a);
     if (list.length) rows.push({ id: 'my-list', title: 'My List', href: '/my-list', items: list });
   }
+  if (own.length) rows.push({ id: 'studio', title: 'New from BingeBox', items: own.slice(0, 24) });
   const trending = providerTrending(a);
   if (trending.length) {
     rows.push({ id: 'trending', title: 'Trending Now', items: trending });
@@ -77,12 +88,18 @@ catalogRouter.get('/home', (req, res) => {
     for (const r of section.rows.filter((r) => !['popular', 'latest', 'top'].includes(r.id)))
       rows.push({ ...r, id: `${section === movies ? 'movie' : 'series'}-${r.id}` });
   }
-  const hero = [...movies.hero.slice(0, 4), ...series.hero.slice(0, 2)];
+  const providerHero = [...movies.hero.slice(0, 4), ...series.hero.slice(0, 2)];
+  const hero = [...own.filter((t) => t.featured), ...providerHero, ...(!providerHero.length ? own : [])].filter((t, i, all) => all.findIndex((x) => x.id === t.id) === i).slice(0, 6);
   res.json({ hero, rows });
 });
 
 catalogRouter.get('/browse/:type', (req, res) => {
-  res.json(providerSection(req.params.type === 'series' ? 'series' : 'movie', audienceOf(req)));
+  const type = req.params.type === 'series' ? 'series' : 'movie';
+  const a = audienceOf(req);
+  const provider = section(type, a);
+  const own = studioTitles(a, type);
+  const hero = [...own.filter((t) => t.featured), ...provider.hero, ...(!provider.hero.length ? own : [])].filter((t, i, all) => all.findIndex((x) => x.id === t.id) === i).slice(0, 6);
+  res.json({ hero, rows: [...(own.length ? [{ id: 'studio', title: type === 'movie' ? 'BingeBox Movies' : 'BingeBox Series', items: own.slice(0, 24) }] : []), ...provider.rows] });
 });
 
 catalogRouter.get('/genres', (req, res) => {
@@ -95,7 +112,7 @@ catalogRouter.get('/genres', (req, res) => {
     description: string | null;
   }[];
   res.json({
-    years: db.prepare("SELECT DISTINCT year FROM titles WHERE status = 'published' AND external_key LIKE 'animedoc:%' AND year IS NOT NULL ORDER BY year DESC").pluck().all(),
+    years: db.prepare("SELECT DISTINCT year FROM titles WHERE status = 'published' AND year IS NOT NULL ORDER BY year DESC").pluck().all(),
     genres: PUBLIC_GENRES.flatMap((category) => {
       const g = genres.find((g) => g.slug === category.slug);
       if (!g) return [];
@@ -219,12 +236,11 @@ catalogRouter.get(
 catalogRouter.get(
   '/titles/:slug',
   route((req, res) => {
-    const t = db.prepare(`SELECT * FROM titles WHERE slug = ? AND status = 'published' AND external_key LIKE 'animedoc:%'`).get(req.params.slug) as Record<string, unknown> | undefined;
+    const t = db.prepare(`SELECT * FROM titles WHERE slug = ? AND status = 'published'`).get(req.params.slug) as Record<string, unknown> | undefined;
     if (!t) throw notFound('We couldn’t find that title.');
     const id = t.id as number;
     const a = audienceOf(req);
     const entry = getIndex().byId.get(id);
-    if (entry && !visible(entry, a)) throw notFound('This title isn’t available on a kids profile.');
 
     const genres = db.prepare('SELECT g.slug, g.name FROM title_genres tg JOIN genres g ON g.id = tg.genre_id WHERE tg.title_id = ? ORDER BY g.sort').all(id);
     const credits = db
@@ -299,7 +315,7 @@ catalogRouter.get(
 catalogRouter.get(
   '/titles/:slug/preview',
   route((req, res) => {
-    const t = db.prepare(`SELECT id, type, title, trailer_url, runtime_min FROM titles WHERE slug = ? AND status = 'published' AND external_key LIKE 'animedoc:%'`).get(req.params.slug) as
+    const t = db.prepare(`SELECT id, type, title, trailer_url, runtime_min FROM titles WHERE slug = ? AND status = 'published'`).get(req.params.slug) as
       | { id: number; type: string; title: string; trailer_url: string | null; runtime_min: number | null }
       | undefined;
     if (!t) throw notFound('We couldn’t find that title.');

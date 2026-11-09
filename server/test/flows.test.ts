@@ -86,17 +86,17 @@ test('accounts, profiles, watchlists, recovery, playback validation and admin', 
       assert.equal((await a.request('/me/progress', 'POST', { titleId: series.id, position: 10, duration: 600 })).status, 400);
       assert.equal((await a.request('/me/progress', 'POST', { titleId: movie.id, position: 700, duration: 600 })).status, 400);
     });
-    await t.test('kids profiles cannot save, rate or track restricted titles', async () => {
-      const created = await a.request('/profiles', 'POST', { name: 'Kids', avatar: 'sunny', isKids: true });
+    await t.test('profiles are standard profiles and kids mode cannot be enabled', async () => {
+      assert.equal((await a.request('/profiles', 'POST', { name: 'Kids', avatar: 'sunny', isKids: true })).status, 400);
+      const created = await a.request('/profiles', 'POST', { name: 'Second Viewer', avatar: 'ocean' });
       assert.equal(created.status, 201);
-      const kidId = created.data.profiles.find((p: { isKids: boolean }) => p.isKids).id;
-      await a.request(`/profiles/${kidId}/select`, 'POST', {});
-      try {
-        assert.equal((await a.request('/me/play/' + movie.slug)).status, 403);
-        assert.equal((await a.request(`/me/list/${movie.id}`, 'PUT', {})).status, 403);
-        assert.equal((await a.request(`/me/ratings/${movie.id}`, 'PUT', { score: 8 })).status, 403);
-        assert.equal((await a.request('/me/progress', 'POST', { titleId: movie.id, position: 10, duration: 600 })).status, 403);
-      } finally { await a.request(`/profiles/${mainProfile}/select`, 'POST', {}); }
+      const added = created.data.profiles.find((p: { name: string }) => p.name === 'Second Viewer');
+      assert.equal('isKids' in added, false);
+      assert.equal((await a.request(`/profiles/${added.id}`, 'PATCH', { isKids: true })).status, 400);
+      await a.request(`/profiles/${added.id}/select`, 'POST', {});
+      assert.equal((await a.request('/me/play/' + movie.slug)).status, 200);
+      assert.equal((await a.request('/me/list')).data.items.length, 0);
+      await a.request(`/profiles/${mainProfile}/select`, 'POST', {});
     });
     await t.test('admin analytics, uploads and user management', async () => {
       assert.equal((await admin.request('/auth/login', 'POST', { email: 'admin@audit.local', password: 'AuditAdmin!2026' })).status, 200);
@@ -111,6 +111,9 @@ test('accounts, profiles, watchlists, recovery, playback validation and admin', 
       assert.equal((await admin.request('/admin/uploads/subtitle', 'POST', subtitles)).status, 201);
       const badImage = new FormData(); badImage.append('file', new Blob(['not an image']), 'bad.jpg');
       assert.equal((await admin.request('/admin/uploads/image', 'POST', badImage)).status, 400);
+      const image = new FormData(); image.append('file', new Blob([Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jZVQAAAAASUVORK5CYII=', 'base64')], { type: 'image/png' }), 'poster.png');
+      const uploaded = await admin.request('/admin/uploads/image', 'POST', image);
+      assert.equal(uploaded.status, 201); assert.match(uploaded.data.url, /^\/uploads\/images\/.+\.png$/);
       const bUser = (await b.request('/auth/me')).data.user.id;
       assert.equal((await admin.request(`/admin/users/${bUser}`, 'PATCH', { status: 'suspended' })).status, 200);
       assert.equal((await b.request('/me/list')).status, 401);

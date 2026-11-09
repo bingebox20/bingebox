@@ -246,6 +246,13 @@ const MIGRATIONS: string[] = [
     WHERE id IN (SELECT tg.title_id FROM title_genres tg JOIN genres g ON g.id = tg.genre_id WHERE lower(g.slug) = 'yoruba');
   DELETE FROM genres WHERE lower(slug) = 'yoruba';
   `,
+  `
+  -- Retire kids mode without deleting anyone's profiles, lists or history.
+  UPDATE profiles SET is_kids = 0 WHERE is_kids != 0;
+  `,
+  `
+  ALTER TABLE profiles DROP COLUMN is_kids;
+  `,
 ];
 
 export function migrate() {

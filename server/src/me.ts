@@ -14,7 +14,7 @@ meRouter.use(requireUser);
 
 const aud = (_req: Request): Audience => ({});
 
-function availableTitle(req: Request, id: number) {
+function availableTitle(_req: Request, id: number) {
   const entry = getIndex().byId.get(id);
   if (!entry) throw notFound('That title is not available.');
   return entry.card;
@@ -127,7 +127,7 @@ meRouter.get(
   '/play/:slug',
   route(async (req, res) => {
     await refreshMovieDetail(req.params.slug);
-    const t = db.prepare(`SELECT id, slug, type, title, backdrop_url, poster_url, maturity, status FROM titles WHERE slug = ? AND external_key LIKE 'animedoc:%'`).get(req.params.slug) as
+    const t = db.prepare(`SELECT id, slug, type, title, backdrop_url, poster_url, maturity, status FROM titles WHERE slug = ?`).get(req.params.slug) as
       | { id: number; slug: string; type: string; title: string; backdrop_url: string | null; poster_url: string | null; maturity: string; status: string }
       | undefined;
     if (!t || (t.status !== 'published' && req.user!.role !== 'admin')) throw notFound('That title isn’t available.');
@@ -161,7 +161,7 @@ meRouter.get(
     const scope = episode ? 'episode_id = ?' : 'episode_id IS NULL';
     const scopeArgs = episode ? [t.id, epId] : [t.id];
     const sources = await movieSources(t.slug, episode, true);
-    if (!sources) throw notFound('This title is not available from AnimeDoc.');
+    if (!sources) throw notFound('This title is not available.');
     if (!sources.length) throw notFound('This title has no playable source yet.');
     const subs = db
       .prepare(`SELECT id, lang, label FROM subtitles WHERE title_id = ? AND ${scope} ORDER BY id`)
@@ -179,7 +179,7 @@ meRouter.get(
       episode: toEp(episode),
       next: toEp(i >= 0 ? episodes[i + 1] : undefined),
       prev: toEp(i > 0 ? episodes[i - 1] : undefined),
-      sources: sources.map((s) => ({ url: `/api/me/stream/${t.slug}/${s.id}${episode ? `?episode=${episode.id}` : ''}`, kind: s.kind, codec: s.codec, quality: s.quality, primary: !!s.isPrimary })),
+      sources: sources.map((s) => ({ url: s.id.startsWith('editor-') ? s.url : `/api/me/stream/${t.slug}/${s.id}${episode ? `?episode=${episode.id}` : ''}`, kind: s.kind, codec: s.codec, quality: s.quality, primary: !!s.isPrimary })),
       subtitles: subs.map((s) => ({ id: s.id, lang: s.lang, label: s.label, src: `/api/subtitles/${s.id}.vtt` })),
       resume: prog && !prog.completed && prog.position_sec > 15 ? { position: prog.position_sec, duration: prog.duration_sec } : null,
     });
@@ -189,7 +189,7 @@ meRouter.get(
 // Same-origin playback keeps the provider credential on the server and avoids
 // CDN hotlink limits. Only catalog sources can be streamed, never arbitrary URLs.
 meRouter.get('/stream/:slug/:source', route(async (req, res) => {
-  const title = db.prepare("SELECT maturity, type FROM titles WHERE slug = ? AND status = ? AND external_key LIKE 'animedoc:%'").get(req.params.slug, 'published') as { maturity: string; type: string } | undefined;
+  const title = db.prepare("SELECT maturity, type FROM titles WHERE slug = ? AND status = ?").get(req.params.slug, 'published') as { maturity: string; type: string } | undefined;
   if (!title) throw notFound('That movie is unavailable.');
   const sourceId = parse(z.string().min(1).max(100).regex(/^[a-zA-Z0-9_-]+$/), req.params.source);
   let episode: EpisodeInfo | undefined;
@@ -203,6 +203,7 @@ meRouter.get('/stream/:slug/:source', route(async (req, res) => {
   const sources = await movieSources(req.params.slug, episode);
   const source = sources?.find((s) => s.id === sourceId);
   if (!source) throw notFound('This video source is unavailable.');
+  if (source.id.startsWith('editor-')) return res.redirect(307, source.url);
   const url = new URL('https://api.animedoc.cloud/api/v2/anime/stream-file/');
   url.searchParams.set('video_url', source.url);
   // Limit the initial open-ended request so browsers can discover MP4 metadata

@@ -10,7 +10,7 @@ import { useToast } from '../../hooks/useToast';
 import { api, ApiError } from '../../lib/api';
 import { cn } from '../../lib/format';
 import type { Genre } from '../../lib/types';
-import { uploadImage, uploadSubtitle } from '../../lib/upload';
+import { uploadImage, uploadSubtitle, uploadVideo } from '../../lib/upload';
 
 // ---------------------------------------------------------------------------
 // Types mirroring the admin API payload
@@ -121,7 +121,7 @@ const SECTIONS = [
   { id: 'rights', label: 'Rights & licensing' },
 ];
 const ROLES: Credit['role'][] = ['cast', 'director', 'writer', 'producer', 'composer', 'cinematographer'];
-const QUALITIES = ['Auto', '2160p', '1080p', '720p', '480p', '360p', '240p'];
+const QUALITIES = ['Auto', 'Original', '2160p', '1080p', '720p', '480p', '360p', '240p'];
 
 export default function AdminTitleEditor() {
   const { id } = useParams();
@@ -141,11 +141,13 @@ function Editor({ initial }: { initial: TitleForm }) {
   const [form, setForm] = useState<TitleForm>(initial);
   const [saved, setSaved] = useState(JSON.stringify(initial));
   const [error, setError] = useState<string | null>(null);
+  const [videoUploading, setVideoUploading] = useState(false);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const toast = useToast();
   useDocumentTitle(form.id ? `Edit ${initial.title}` : 'New title');
   const dirty = JSON.stringify(form) !== saved;
+  const savedNavigation = useRef(false);
 
   const genres = useQuery({ queryKey: ['admin', 'genres'], queryFn: () => api.get<{ genres: Genre[] }>('/admin/genres') });
   const policy = useQuery({ queryKey: ['admin', 'policy'], queryFn: () => api.get<{ authorisedHosts: string[] }>('/admin/sources/policy'), staleTime: Infinity });
@@ -160,7 +162,7 @@ function Editor({ initial }: { initial: TitleForm }) {
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
   }, [dirty]);
-  const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname);
+  const blocker = useBlocker(({ currentLocation, nextLocation }) => !savedNavigation.current && dirty && currentLocation.pathname !== nextLocation.pathname);
   useEffect(() => {
     if (blocker.state === 'blocked') {
       if (confirm('You have unsaved changes. Leave without saving?')) blocker.proceed();
@@ -175,9 +177,9 @@ function Editor({ initial }: { initial: TitleForm }) {
       setSaved(JSON.stringify(res.title));
       setError(null);
       qc.invalidateQueries({ queryKey: ['admin'] });
-      qc.invalidateQueries({ queryKey: ['home'] });
+      qc.invalidateQueries({ predicate: (q) => ['home', 'browse', 'titles', 'title', 'genres', 'search'].includes(String(q.queryKey[0])) });
       toast.success(form.id ? 'Changes saved' : 'Title created');
-      if (!form.id) navigate(`/admin/titles/${res.title.id}`, { replace: true });
+      if (!form.id) { savedNavigation.current = true; navigate(`/admin/titles/${res.title.id}`, { replace: true }); }
     },
     onError: (e) => {
       setError(e instanceof ApiError ? e.message : 'Couldn’t save this title.');
@@ -186,6 +188,7 @@ function Editor({ initial }: { initial: TitleForm }) {
   });
 
   const submit = (status?: 'published' | 'draft') => {
+    if (videoUploading) { toast.error('Wait for the movie upload to finish before saving.'); return; }
     const body = { ...form, status: status ?? form.status, slug: form.slug.trim() };
     if (status) setForm(body);
     save.mutate(body);
@@ -291,13 +294,13 @@ function Editor({ initial }: { initial: TitleForm }) {
             <div className="mb-5 flex items-start gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.06] p-4 text-sm">
               <ShieldCheck size={18} className="mt-0.5 shrink-0 text-emerald-400" />
               <div className="text-ink-200">
-                Only streams from <span className="font-semibold text-white">authorised sources</span> can be saved:{' '}
-                <span className="text-ink-300">{policy.data?.authorisedHosts.join(', ')}</span>. Add licensed CDNs with the <code className="text-ink-100">AUTHORISED_VIDEO_HOSTS</code> server setting.
+                Upload your own movie file, or add an authorised streaming URL. Uploaded videos are hosted on BingeBox.{' '}
+                {!!policy.data?.authorisedHosts.length && <span>Approved external hosts: <span className="text-white">{policy.data.authorisedHosts.join(', ')}</span>.</span>}
               </div>
             </div>
             {form.type === 'movie' ? (
               <>
-                <SourcesEditor sources={form.sources} onChange={(v) => set('sources', v)} />
+                <SourcesEditor sources={form.sources} onChange={(v) => set('sources', v)} onUploadChange={setVideoUploading} />
                 <div className="mt-6">
                   <SubtitlesEditor subtitles={form.subtitles} onChange={(v) => set('subtitles', v)} />
                 </div>
@@ -352,19 +355,19 @@ function Editor({ initial }: { initial: TitleForm }) {
           <div className="ml-auto flex gap-2">
             {form.status === 'published' && form.id ? (
               <>
-                <button onClick={() => submit('draft')} disabled={save.isPending} className="btn btn-glass btn-sm">
+                <button onClick={() => submit('draft')} disabled={save.isPending || videoUploading} className="btn btn-glass btn-sm">
                   Unpublish
                 </button>
-                <button onClick={() => submit()} disabled={save.isPending || !dirty} className="btn btn-primary btn-sm">
+                <button onClick={() => submit()} disabled={save.isPending || videoUploading || !dirty} className="btn btn-primary btn-sm">
                   {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Save changes
                 </button>
               </>
             ) : (
               <>
-                <button onClick={() => submit('draft')} disabled={save.isPending} className="btn btn-glass btn-sm">
+                <button onClick={() => submit('draft')} disabled={save.isPending || videoUploading} className="btn btn-glass btn-sm">
                   Save draft
                 </button>
-                <button onClick={() => submit('published')} disabled={save.isPending} className="btn btn-primary btn-sm">
+                <button onClick={() => submit('published')} disabled={save.isPending || videoUploading} className="btn btn-primary btn-sm">
                   {save.isPending ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />} Publish
                 </button>
               </>
@@ -476,18 +479,40 @@ function ImageField({ label, value, onChange, aspect, maxWidth, compact }: { lab
 
 const detectKind = (url: string): Source['kind'] => (/\.m3u8(\?|$)/i.test(url) ? 'hls' : 'mp4');
 
-function SourcesEditor({ sources, onChange, compact }: { sources: Source[]; onChange: (v: Source[]) => void; compact?: boolean }) {
+function SourcesEditor({ sources, onChange, compact, onUploadChange }: { sources: Source[]; onChange: (v: Source[]) => void; compact?: boolean; onUploadChange?: (busy: boolean) => void }) {
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const toast = useToast();
+  const current = useRef({ sources, onChange });
+  current.current = { sources, onChange };
+  const pickVideo = async (file?: File) => {
+    if (!file || uploading) return;
+    setUploading(true); onUploadChange?.(true); setProgress(0);
+    try {
+      const url = await uploadVideo(file, setProgress);
+      const list = current.current.sources;
+      current.current.onChange([...list, { url, kind: 'mp4', quality: 'Original', primary: list.length === 0 }]);
+      toast.success('Movie uploaded. Save or publish the title to make it available.');
+    } catch (e) { toast.error(e instanceof ApiError ? e.message : 'Couldn’t upload the movie.'); }
+    finally { setUploading(false); onUploadChange?.(false); if (fileInput.current) fileInput.current.value = ''; }
+  };
   const [testing, setTesting] = useState<Source | null>(null);
   const update = (i: number, patch: Partial<Source>) => onChange(sources.map((s, j) => (j === i ? { ...s, ...patch } : patch.primary ? { ...s, primary: false } : s)));
   return (
     <div>
       {!compact && <p className="label">Video sources</p>}
+      <div className="mb-5 rounded-xl border border-dashed border-white/15 bg-white/[0.025] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm font-semibold">Upload your movie</p><p className="mt-1 text-xs leading-5 text-ink-300">MP4 (H.264/AAC) or WebM · up to 2 GB. Only upload content you own or have permission to stream.</p></div><button type="button" disabled={uploading} onClick={() => fileInput.current?.click()} className="btn btn-glass btn-sm">{uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}{uploading ? `Uploading ${progress}%` : 'Choose video file'}</button></div>
+        <input ref={fileInput} type="file" accept="video/mp4,video/webm,.mp4,.webm" aria-label="Upload movie video" className="hidden" onChange={(e) => pickVideo(e.target.files?.[0])} />
+        {uploading && <div className="mt-4" role="progressbar" aria-label="Video upload progress" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}><div className="h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full bg-brand-500 transition-[width]" style={{ width: `${progress}%` }} /></div><p className="mt-2 text-[11px] text-ink-300">{progress >= 99 ? 'Finishing upload…' : 'Keep this page open while your video uploads.'}</p></div>}
+      </div>
       <div className="space-y-2">
         {sources.map((s, i) => (
           <div key={i} className="flex flex-wrap items-center gap-2 rounded-xl border border-white/[0.06] bg-ink-900/60 p-2">
             <input className="input h-10 min-w-[220px] flex-1 text-sm" placeholder="https://… .mp4 or .m3u8" value={s.url} onChange={(e) => update(i, { url: e.target.value.trim(), kind: detectKind(e.target.value) })} aria-label="Stream URL" />
             <select className="input h-10 w-24 text-sm" value={s.kind} onChange={(e) => update(i, { kind: e.target.value as Source['kind'] })} aria-label="Format">
-              <option value="mp4">MP4</option>
+              <option value="mp4">MP4 / WebM</option>
               <option value="hls">HLS</option>
             </select>
             <select className="input h-10 w-28 text-sm" value={s.quality} onChange={(e) => update(i, { quality: e.target.value })} aria-label="Quality">

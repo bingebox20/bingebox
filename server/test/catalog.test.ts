@@ -89,7 +89,7 @@ test('provider catalog, seasons, media and admin changes survive sync', async ()
   }) as typeof fetch;
   const app = express();
   app.use(express.json());
-  app.use((req, _res, next) => { req.user = { id: 1, email: 'admin@example.com', name: 'Admin', role: 'admin', status: 'active', created_at: 0 }; req.profile = { id: 1, user_id: 1, name: 'Admin', is_kids: 0, avatar: 'ember' }; next(); });
+  app.use((req, _res, next) => { req.user = { id: 1, email: 'admin@example.com', name: 'Admin', role: 'admin', status: 'active', created_at: 0 }; req.profile = { id: 1, user_id: 1, name: 'Admin', avatar: 'ember' }; next(); });
   app.use('/admin', adminRouter);
   app.use('/me', meRouter);
   app.use('/catalog', catalogRouter);
@@ -167,10 +167,16 @@ test('provider catalog, seasons, media and admin changes survive sync', async ()
     assert.equal(db.prepare('SELECT COUNT(*) FROM subtitles WHERE episode_id = ?').pluck().get(episodes[1].id), 1);
     const get = await originalFetch(`http://localhost:${port}/admin/titles/${stored.id}`);
     const editable = (await get.json()).title;
-    const update = await originalFetch(`http://localhost:${port}/admin/titles/${stored.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...editable, title: 'Editor’s choice' }) });
+    const licensedUrl = 'https://macdn.aoneroom.com/licensed.mp4';
+    const update = await originalFetch(`http://localhost:${port}/admin/titles/${stored.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...editable, title: 'Editor’s choice', sources: [{ url: licensedUrl, kind: 'mp4', quality: '1080p', primary: true }] }) });
     assert.equal(update.status, 200, await update.text());
     await searchMovies('changed test');
     assert.equal(db.prepare('SELECT title FROM titles WHERE id = ?').pluck().get(stored.id), 'Editor’s choice');
+    const savedPlayback = await originalFetch(`http://localhost:${port}/me/play/${stored.slug}`);
+    assert.equal(savedPlayback.status, 200);
+    assert.equal((await savedPlayback.json()).sources[0].url, licensedUrl, 'Use the administrator’s authorised source instead of silently ignoring it');
+    const unapproved = await originalFetch(`http://localhost:${port}/admin/titles/${stored.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...editable, sources: [{ url: 'https://unapproved.example/video.mp4', kind: 'mp4', quality: '1080p', primary: true }] }) });
+    assert.equal(unapproved.status, 400);
     const deleted = await originalFetch(`http://localhost:${port}/admin/titles/${stored.id}`, { method: 'DELETE' });
     assert.equal(deleted.status, 200);
     await searchMovies('deleted test');

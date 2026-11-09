@@ -1,15 +1,30 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import path from 'node:path';
 import { requireAdmin } from './auth.js';
 import { invalidate } from './catalog-index.js';
 import { config } from './config.js';
 import { db, now, reindexTitle } from './db.js';
 import { badRequest, HttpError, intParam, notFound, parse, route } from './http.js';
-import { imageUpload, saveImage, saveSubtitle, subtitleUpload } from './uploads.js';
-import { animedocEnabled, refreshMovieDetail } from './animedoc.js';
+import { imageUpload, saveImage, saveSubtitle, saveVideo, subtitleUpload, videoUpload } from './uploads.js';
+import { animedocEnabled, refreshMovieDetail, resetAnimedocCaches } from './animedoc.js';
+import { setEnvValue } from './env-file.js';
+import { authorisedVideoHosts, isAuthorisedVideo } from './video-policy.js';
 
 export const adminRouter = Router();
 adminRouter.use(requireAdmin);
+
+adminRouter.get('/settings/animedoc', (_req, res) => res.json({ configured: animedocEnabled() }));
+
+adminRouter.put('/settings/animedoc', route(async (req, res) => {
+  const { apiKey } = parse(z.object({ apiKey: z.string().trim().max(256).regex(/^ad_live_[A-Za-z0-9_-]+$/, 'Enter an AnimeDoc key starting with ad_live_.') }).strict(), req.body);
+  try { await setEnvValue(path.join(config.root, '.env'), 'ANIMEDOC_API_KEY', apiKey); }
+  catch { throw new HttpError(503, 'The server could not save its configuration. Check that server/.env is writable and try again.', 'configuration_write'); }
+  config.animedocApiKey = apiKey;
+  process.env.ANIMEDOC_API_KEY = apiKey;
+  resetAnimedocCaches();
+  res.json({ ok: true, configured: true });
+}));
 
 // ---------------------------------------------------------------------------
 // Analytics
@@ -176,20 +191,6 @@ function editableTitle(id: number, t: Record<string, unknown>) {
     createdAt: t.created_at,
     updatedAt: t.updated_at,
   };
-}
-
-/** Accepts only http(s) URLs on the authorised-host list, or files uploaded to BingeBox. */
-function isAuthorisedVideo(url: string) {
-  if (url.startsWith('/uploads/')) return true;
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'https:') return false;
-    const host = u.hostname.toLowerCase();
-    const hosts = [...config.authorisedVideoHosts, ...(config.animedocApiKey ? ['*.aoneroom.com'] : [])];
-    return hosts.some((h) => (h.startsWith('*.') ? host.endsWith(h.slice(1)) : host === h));
-  } catch {
-    return false;
-  }
 }
 
 const urlish = z
@@ -360,6 +361,7 @@ function saveTitle(b: TitleBody, existingId?: number): number {
           .prepare(`INSERT INTO titles (${cols.join(', ')}, created_at, popularity) VALUES (${cols.map((c) => '@' + c).join(', ')}, @created_at, 20)`)
           .run({ ...values, created_at: t }).lastInsertRowid
       );
+      db.prepare("UPDATE titles SET external_key = 'studio:' || id WHERE id = ?").run(id);
     }
 
     // Genres
@@ -496,11 +498,12 @@ adminRouter.patch(
   route((req, res) => {
     const id = intParam(req.params.id);
     const body = parse(z.object({ status: z.enum(['published', 'draft']).optional(), featured: z.boolean().optional() }), req.body);
-    const t = db.prepare('SELECT id, status, featured FROM titles WHERE id = ?').get(id) as { status: string; featured: number } | undefined;
+    const t = db.prepare('SELECT * FROM titles WHERE id = ?').get(id) as ({ status: string; featured: number; external_key: string | null } & Record<string, unknown>) | undefined;
     if (!t) throw notFound('Title not found.');
     if (body.status === 'published') {
       const hasMedia = db.prepare("SELECT 1 FROM video_sources WHERE title_id = ? UNION SELECT 1 FROM titles WHERE id = ? AND external_key LIKE 'animedoc:%' LIMIT 1").get(id, id);
       if (!hasMedia) throw badRequest('Add a video source before publishing.');
+      if (!t.external_key?.startsWith('animedoc:')) validatePublishable(parse(titleBody, { ...editableTitle(id, t), status: 'published' }));
     }
     db.prepare('UPDATE titles SET status = ?, featured = ?, updated_at = ?, provider_edited = 1 WHERE id = ?').run(
       body.status ?? t.status,
@@ -529,7 +532,7 @@ adminRouter.delete(
   })
 );
 
-adminRouter.get('/sources/policy', (_req, res) => res.json({ authorisedHosts: config.authorisedVideoHosts }));
+adminRouter.get('/sources/policy', (_req, res) => res.json({ authorisedHosts: authorisedVideoHosts() }));
 
 // ---------------------------------------------------------------------------
 // Uploads
@@ -540,6 +543,8 @@ adminRouter.post(
   imageUpload,
   route(async (req, res) => res.status(201).json({ url: await saveImage(req.file) }))
 );
+
+adminRouter.post('/uploads/video', videoUpload, route(async (req, res) => res.status(201).json(await saveVideo(req.file))));
 
 adminRouter.post(
   '/uploads/subtitle',

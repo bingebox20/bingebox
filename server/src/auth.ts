@@ -23,7 +23,6 @@ export interface AuthProfile {
   user_id: number;
   name: string;
   avatar: string;
-  is_kids: number;
 }
 
 declare module 'express-serve-static-core' {
@@ -83,13 +82,13 @@ export function loadSession(req: Request, _res: Response, next: NextFunction) {
       req.sessionId = row.sid;
       req.user = { id: row.id, email: row.email, name: row.name, role: row.role, status: row.status, created_at: row.created_at };
       if (row.profile_id) {
-        req.profile = db.prepare('SELECT id, user_id, name, avatar, is_kids FROM profiles WHERE id = ? AND user_id = ?').get(row.profile_id, row.id) as
+        req.profile = db.prepare('SELECT id, user_id, name, avatar FROM profiles WHERE id = ? AND user_id = ?').get(row.profile_id, row.id) as
           | AuthProfile
           | undefined;
       }
       // Fall back to the account's first profile so personal features always have one.
       if (!req.profile) {
-        req.profile = db.prepare('SELECT id, user_id, name, avatar, is_kids FROM profiles WHERE user_id = ? ORDER BY id LIMIT 1').get(row.id) as
+        req.profile = db.prepare('SELECT id, user_id, name, avatar FROM profiles WHERE user_id = ? ORDER BY id LIMIT 1').get(row.id) as
           | AuthProfile
           | undefined;
       }
@@ -125,10 +124,10 @@ export function requireAppHeader(req: Request, _res: Response, next: NextFunctio
 // ---------------------------------------------------------------------------
 
 export const publicUser = (u: AuthUser) => ({ id: u.id, email: u.email, name: u.name, role: u.role, createdAt: u.created_at });
-export const publicProfile = (p: AuthProfile) => ({ id: p.id, name: p.name, avatar: p.avatar, isKids: false });
+export const publicProfile = (p: AuthProfile) => ({ id: p.id, name: p.name, avatar: p.avatar });
 
 const listProfiles = (userId: number) =>
-  (db.prepare('SELECT id, user_id, name, avatar, is_kids FROM profiles WHERE user_id = ? ORDER BY id').all(userId) as AuthProfile[]).map(publicProfile);
+  (db.prepare('SELECT id, user_id, name, avatar FROM profiles WHERE user_id = ? ORDER BY id').all(userId) as AuthProfile[]).map(publicProfile);
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -252,8 +251,7 @@ profilesRouter.use(requireUser);
 const profileBody = z.object({
   name: z.string().trim().min(1, 'Give the profile a name.').max(20),
   avatar: z.enum(AVATARS).default('ember'),
-  isKids: z.literal(false, { errorMap: () => ({ message: 'Kids profiles have been removed. Create a standard profile.' }) }).optional(),
-});
+}).strict();
 
 profilesRouter.get('/', (req, res) => res.json({ profiles: listProfiles(req.user!.id), current: publicProfile(req.profile!) }));
 
@@ -263,11 +261,10 @@ profilesRouter.post(
     const body = parse(profileBody, req.body);
     const count = db.prepare('SELECT COUNT(*) FROM profiles WHERE user_id = ?').pluck().get(req.user!.id) as number;
     if (count >= MAX_PROFILES) throw badRequest(`An account can have up to ${MAX_PROFILES} profiles.`);
-    db.prepare('INSERT INTO profiles (user_id, name, avatar, is_kids, created_at) VALUES (?, ?, ?, ?, ?)').run(
+    db.prepare('INSERT INTO profiles (user_id, name, avatar, created_at) VALUES (?, ?, ?, ?)').run(
       req.user!.id,
       body.name,
       body.avatar,
-      0,
       now()
     );
     res.status(201).json({ profiles: listProfiles(req.user!.id) });
@@ -281,10 +278,9 @@ profilesRouter.patch(
     const body = parse(profileBody.partial(), req.body);
     const p = db.prepare('SELECT * FROM profiles WHERE id = ? AND user_id = ?').get(id, req.user!.id) as AuthProfile | undefined;
     if (!p) throw notFound('Profile not found.');
-    db.prepare('UPDATE profiles SET name = ?, avatar = ?, is_kids = ? WHERE id = ?').run(
+    db.prepare('UPDATE profiles SET name = ?, avatar = ? WHERE id = ?').run(
       body.name ?? p.name,
       body.avatar ?? p.avatar,
-      0,
       id
     );
     res.json({ profiles: listProfiles(req.user!.id) });
@@ -307,7 +303,7 @@ profilesRouter.post(
   '/:id/select',
   route((req, res) => {
     const id = intParam(req.params.id);
-    const p = db.prepare('SELECT id, user_id, name, avatar, is_kids FROM profiles WHERE id = ? AND user_id = ?').get(id, req.user!.id) as AuthProfile | undefined;
+    const p = db.prepare('SELECT id, user_id, name, avatar FROM profiles WHERE id = ? AND user_id = ?').get(id, req.user!.id) as AuthProfile | undefined;
     if (!p) throw notFound('Profile not found.');
     db.prepare('UPDATE sessions SET profile_id = ? WHERE id = ?').run(id, req.sessionId);
     res.json({ profile: publicProfile(p) });

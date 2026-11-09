@@ -1,4 +1,4 @@
-import { ExternalLink, Film, LayoutDashboard, Menu, Tags, Users, X } from 'lucide-react';
+import { ExternalLink, Film, KeyRound, LayoutDashboard, Menu, Plus, ShieldCheck, Tags, Users, X } from 'lucide-react';
 import { Suspense, useEffect, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Avatar } from '../../components/ui/Avatar';
@@ -19,6 +19,12 @@ export default function AdminLayout() {
   const [open, setOpen] = useState(false);
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    window.addEventListener('keydown', close);
+    return () => window.removeEventListener('keydown', close);
+  }, [open]);
 
   const sidebar = (
     <div className="flex h-full flex-col">
@@ -27,7 +33,9 @@ export default function AdminLayout() {
           <Logo />
         </Link>
         <span className="rounded-md bg-brand-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand-300">Studio</span>
+        <button onClick={() => setOpen(false)} aria-label="Close admin navigation" className="ml-auto grid h-8 w-8 place-items-center rounded-lg hover:bg-white/5 lg:hidden"><X size={17} /></button>
       </div>
+      <div className="px-4 pb-2 pt-5"><Link to="/admin/titles/new" className="btn btn-primary btn-md w-full"><Plus size={16} /> Add content</Link></div>
       <nav className="flex-1 space-y-1 px-3 py-4" aria-label="Admin">
         {NAV.map(({ to, label, icon: Icon, end }) => (
           <NavLink
@@ -35,7 +43,7 @@ export default function AdminLayout() {
             to={to}
             end={end}
             className={({ isActive }) =>
-              cn('flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition', isActive ? 'bg-white/[0.08] text-white' : 'text-ink-300 hover:bg-white/[0.04] hover:text-white')
+              cn('flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition', isActive ? 'bg-brand-500/10 text-brand-300' : 'text-ink-300 hover:bg-white/[0.04] hover:text-white')
             }
           >
             <Icon size={18} /> {label}
@@ -43,6 +51,7 @@ export default function AdminLayout() {
         ))}
       </nav>
       <div className="space-y-2 border-t border-white/[0.06] p-3">
+        <button onClick={() => { setOpen(false); window.dispatchEvent(new Event('bingebox:configure-animedoc')); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-ink-300 hover:bg-white/[0.04] hover:text-white"><KeyRound size={17} /> AnimeDoc API key</button>
         <Link to="/" className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-ink-300 hover:bg-white/[0.04] hover:text-white">
           <ExternalLink size={17} /> View site
         </Link>
@@ -67,11 +76,12 @@ export default function AdminLayout() {
         </div>
       )}
       <div className="min-w-0">
-        <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b border-white/[0.06] bg-ink-950/90 px-4 backdrop-blur lg:hidden">
-          <button onClick={() => setOpen((o) => !o)} className="grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5" aria-label="Menu">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-white/[0.06] bg-ink-950/90 px-4 backdrop-blur sm:px-8">
+          <button onClick={() => setOpen((o) => !o)} className="grid h-10 w-10 place-items-center rounded-lg hover:bg-white/5 lg:hidden" aria-label="Menu">
             {open ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <Logo className="text-[15px]" />
+          <span className="text-xs text-ink-300">Studio <span className="mx-2 text-ink-500">/</span> {location.pathname.includes('/titles/new') ? 'Add content' : NAV.find((item) => item.to !== '/admin' && location.pathname.startsWith(item.to))?.label ?? 'Overview'}</span>
+          <span className="ml-auto flex items-center gap-1.5 text-[10px] font-medium text-ink-300"><ShieldCheck size={13} /> Administrator</span>
         </header>
         <main className="mx-auto max-w-[1400px] px-4 py-8 sm:px-8">
           <Suspense fallback={<FullPageLoader />}>

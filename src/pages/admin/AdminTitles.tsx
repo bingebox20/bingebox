@@ -78,7 +78,7 @@ export default function AdminTitles() {
         subtitle={data ? `${data.total.toLocaleString()} titles in the catalog` : 'Movies and series in the catalog'}
         actions={
           <Link to="/admin/titles/new" className="btn btn-primary btn-sm">
-            <Plus size={16} /> Import title
+            <Plus size={16} /> Add movie or series
           </Link>
         }
       />

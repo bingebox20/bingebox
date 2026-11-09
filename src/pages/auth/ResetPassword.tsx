@@ -9,6 +9,7 @@ export default function ResetPassword() {
   useDocumentTitle('Choose a new password');
   const [params] = useSearchParams();
   const token = params.get('token') ?? '';
+  const adminSetup = params.get('next') === '/admin/login';
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,15 +44,15 @@ export default function ResetPassword() {
         <div className="flex flex-col items-center text-center">
           <CheckCircle2 size={44} className="text-emerald-400" />
           <p className="mt-4 text-ink-200">Your password has been changed and you’ve been signed out of other devices.</p>
-          <Link to="/login" className="btn btn-primary btn-lg mt-8 w-full">
-            Sign in
+          <Link to={adminSetup ? '/admin/login' : '/login'} className="btn btn-primary btn-lg mt-8 w-full">
+            {adminSetup ? 'Sign in to dashboard' : 'Sign in'}
           </Link>
         </div>
       </AuthCard>
     );
 
   return (
-    <AuthCard title="Choose a new password" subtitle="Use at least 8 characters with a letter and a number.">
+    <AuthCard title={adminSetup ? 'Set your administrator password' : 'Choose a new password'} subtitle="Use at least 8 characters with a letter and a number.">
       <form onSubmit={submit} className="space-y-5">
         <FormError message={error} />
         <PasswordField label="New password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} showStrength autoFocus />

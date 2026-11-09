@@ -16,6 +16,7 @@ const TitlePage = lazy(() => import('./pages/TitlePage'));
 const PersonPage = lazy(() => import('./pages/PersonPage'));
 const Watch = lazy(() => import('./pages/Watch'));
 const Login = lazy(() => import('./pages/auth/Login'));
+const AdminLogin = lazy(() => import('./pages/auth/AdminLogin'));
 const Signup = lazy(() => import('./pages/auth/Signup'));
 const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'));
 const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'));
@@ -62,6 +63,7 @@ export const router = createBrowserRouter(
           element: <AuthLayout />,
           children: [
             { path: 'login', element: <Login /> },
+            { path: 'admin/login', element: <AdminLogin /> },
             { path: 'signup', element: <Signup /> },
             { path: 'forgot-password', element: <ForgotPassword /> },
             { path: 'reset-password', element: <ResetPassword /> },
@@ -84,6 +86,7 @@ export const router = createBrowserRouter(
                 { index: true, element: <AdminDashboard /> },
                 { path: 'titles', element: <AdminTitles /> },
                 { path: 'titles/new', element: <AdminImportTitle /> },
+                { path: 'titles/create', element: <AdminTitleEditor /> },
                 { path: 'titles/:id', element: <AdminTitleEditor /> },
                 { path: 'users', element: <AdminUsers /> },
                 { path: 'genres', element: <AdminGenres /> },

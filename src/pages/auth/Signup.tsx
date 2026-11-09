@@ -7,7 +7,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { ApiError } from '../../lib/api';
 import { safeNext } from '../../lib/format';
 
-const PERKS = ['Unlimited streaming, no ads', 'Up to 5 profiles, including Kids', 'Resume anywhere, on any device'];
+const PERKS = ['Movies and series from AnimeDoc', 'Up to 5 personal profiles', 'Resume anywhere, on any device'];
 
 export default function Signup() {
   useDocumentTitle('Create your account');

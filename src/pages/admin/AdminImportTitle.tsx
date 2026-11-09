@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ArrowRight, Download, Search } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Download, Film, Search, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Artwork } from '../../components/ui/Artwork';
@@ -11,7 +11,7 @@ import type { CardTitle } from '../../lib/types';
 import { AdminHeader } from './ui';
 
 export default function AdminImportTitle() {
-  useDocumentTitle('Import title');
+  useDocumentTitle('Add movie or series');
   const [keyword, setKeyword] = useState('');
   const [detailPath, setDetailPath] = useState('');
   const debounced = useDebounced(keyword.trim(), 350);
@@ -25,7 +25,10 @@ export default function AdminImportTitle() {
   return (
     <div className="max-w-4xl">
       <Link to="/admin/titles" className="mb-6 inline-flex items-center gap-2 text-sm text-ink-300 hover:text-white"><ArrowLeft size={15} /> Back to titles</Link>
-      <AdminHeader title="Import a title" subtitle="Find a real movie or series in AnimeDoc, then review its artwork and metadata before making changes." />
+      <AdminHeader title="Add a movie or series" subtitle="Publish your own content or bring a real title into your library from AnimeDoc." />
+      <section className="mb-8 flex flex-wrap items-center justify-between gap-5 rounded-2xl border border-brand-500/20 bg-gradient-to-r from-brand-500/[0.08] to-transparent p-5 sm:p-6"><div className="flex items-start gap-4"><span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-brand-500/15 text-brand-300"><Film size={22} /></span><div><h2 className="font-display text-lg font-bold">Post your own movie</h2><p className="mt-2 max-w-md text-sm leading-6 text-ink-300">Upload your video, add a poster and description, then publish. Your movie will appear on BingeBox for viewers to watch.</p></div></div><Link to="/admin/titles/create" className="btn btn-primary btn-md"><Upload size={16} /> Add your own movie</Link></section>
+      <h2 className="mb-4 font-display text-lg font-bold">Or import from AnimeDoc</h2>
+      <ol className="mb-6 grid gap-3 sm:grid-cols-3">{['Find a title', 'Review artwork & metadata', 'Save or publish'].map((step, i) => <li key={step} className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 text-xs text-ink-200"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-brand-500/15 text-[10px] font-bold text-brand-300">{i + 1}</span>{step}</li>)}</ol>
       <FormError message={importTitle.error instanceof ApiError ? importTitle.error.message : importTitle.isError ? 'We couldn’t import that title. Please try again.' : undefined} />
       <section className="card-surface p-5 sm:p-6">
         <h2 className="mb-4 font-display text-lg font-bold">Search the connected catalog</h2>

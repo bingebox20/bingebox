@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
+import { open, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import multer from 'multer';
 import { config } from './config.js';
@@ -15,9 +15,34 @@ import { toVtt } from './subtitles.js';
  */
 mkdirSync(path.join(config.uploadsDir, 'images'), { recursive: true });
 mkdirSync(path.join(config.uploadsDir, 'subtitles'), { recursive: true });
+mkdirSync(path.join(config.uploadsDir, 'videos'), { recursive: true });
 
 export const imageUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024, files: 1 } }).single('file');
 export const subtitleUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 1.5 * 1024 * 1024, files: 1 } }).single('file');
+export const videoUpload = multer({
+  storage: multer.diskStorage({
+    destination: path.join(config.uploadsDir, 'videos'),
+    filename: (_req, _file, cb) => cb(null, `${randomBytes(16).toString('hex')}.part`),
+  }),
+  limits: { fileSize: 2 * 1024 * 1024 * 1024, files: 1 },
+}).single('file');
+
+export async function saveVideo(file?: Express.Multer.File): Promise<{ url: string; size: number }> {
+  if (!file) throw badRequest('Choose a movie file to upload.');
+  try {
+    const handle = await open(file.path, 'r');
+    const header = Buffer.alloc(32);
+    let bytesRead: number;
+    try { ({ bytesRead } = await handle.read(header, 0, header.length, 0)); } finally { await handle.close(); }
+    const brand = header.subarray(8, 12).toString('ascii');
+    const ext = bytesRead >= 12 && header.subarray(4, 8).toString('ascii') === 'ftyp' && /^(iso\d|isom|mp4[12]|avc1|M4V |dash|MSNV)$/.test(brand) ? 'mp4' :
+      bytesRead >= 4 && header.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3])) ? 'webm' : null;
+    if (!ext) throw badRequest('Upload an MP4 or WebM video file.');
+    const fileName = `${randomBytes(16).toString('hex')}.${ext}`;
+    await rename(file.path, path.join(config.uploadsDir, 'videos', fileName));
+    return { url: `/uploads/videos/${fileName}`, size: file.size };
+  } catch (error) { await rm(file.path, { force: true }); throw error; }
+}
 
 /** Identify the format from the file's magic bytes, never from the client-supplied type. */
 function sniffImage(buf: Buffer): 'jpg' | 'png' | 'webp' | 'avif' | 'gif' | null {

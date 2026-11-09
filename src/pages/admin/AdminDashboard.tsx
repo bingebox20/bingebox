@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Clock, Eye, Film, ListVideo, PlayCircle, Plus, Search, Star, Tv, UserPlus, Users } from 'lucide-react';
+import { ArrowRight, Clock, Eye, Film, Image, KeyRound, ListVideo, PlayCircle, Plus, Search, Settings2, Star, Tags, Tv, UserPlus, Users } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { LandscapeArt } from '../../components/cards/TitleArt';
@@ -7,7 +7,6 @@ import { ErrorState, Skeleton } from '../../components/ui/States';
 import { useDocumentTitle } from '../../hooks/misc';
 import { api } from '../../lib/api';
 import { compact, relativeTime } from '../../lib/format';
-import { AdminHeader } from './ui';
 import { BarList, Legend, LineChart, SERIES } from './charts';
 
 interface Stats {
@@ -29,21 +28,28 @@ export default function AdminDashboard() {
   useDocumentTitle('Admin');
   const [table, setTable] = useState(false);
   const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['admin', 'stats'], queryFn: () => api.get<Stats>('/admin/stats'), refetchInterval: 60_000 });
+  const connection = useQuery({ queryKey: ['admin', 'animedoc-settings'], queryFn: () => api.get<{ configured: boolean }>('/admin/settings/animedoc') });
 
   if (isError) return <ErrorState onRetry={() => refetch()} />;
   const t = data?.totals;
 
   return (
     <div>
-      <AdminHeader
-        title="Overview"
-        subtitle="Catalog health and audience activity over the last 30 days."
-        actions={
-          <Link to="/admin/titles/new" className="btn btn-primary btn-sm">
-            <Plus size={16} /> Import title
-          </Link>
-        }
-      />
+      <section className="relative mb-7 overflow-hidden rounded-3xl border border-white/10 bg-[radial-gradient(ellipse_at_top_right,rgba(255,45,70,0.13),transparent_60%)] p-6 sm:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-5"><div className="max-w-xl"><p className="eyebrow mb-3">BingeBox Studio</p><h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">Admin dashboard</h1><p className="mt-3 text-sm leading-6 text-ink-300">Manage your movies and series, shape your catalog and see how your audience is watching.</p></div><Link to="/admin/titles/new" className="btn btn-primary btn-md"><Plus size={16} /> Add movie or series</Link></div>
+        <div className="mt-7 flex flex-wrap items-center justify-between gap-4 border-t border-white/[0.08] pt-5"><span className="flex items-center gap-2 text-xs text-ink-200"><span className={`h-2 w-2 rounded-full ${connection.data?.configured ? 'bg-emerald-400' : 'bg-amber-400'}`} />{connection.isLoading ? 'Checking AnimeDoc configuration…' : connection.isError ? 'Connection status unavailable' : connection.data?.configured ? 'AnimeDoc API key configured' : 'Connect your AnimeDoc API key'}</span><button onClick={() => window.dispatchEvent(new Event('bingebox:configure-animedoc'))} className="flex items-center gap-2 text-xs font-semibold text-ink-200 transition hover:text-white"><KeyRound size={14} /> Configure API key <ArrowRight size={13} /></button></div>
+      </section>
+
+      <div className="mb-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          { to: '/admin/titles', title: 'Content library', text: 'Edit metadata, artwork & streams', icon: Image },
+          { to: '/admin/titles/new', title: 'Add content', text: 'Upload a movie or import AnimeDoc', icon: Plus },
+          { to: '/admin/users', title: 'Manage users', text: 'Accounts, roles & access', icon: Users },
+          { to: '/admin/genres', title: 'Categories', text: 'Organise your movie collection', icon: Tags },
+        ].map(({ to, title, text, icon: Icon }) => <Link key={to} to={to} className="group flex items-start gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 transition hover:border-brand-500/30 hover:bg-white/[0.045]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/[0.04] text-ink-200 transition group-hover:text-brand-300"><Icon size={17} /></span><div className="min-w-0 flex-1"><p className="text-sm font-semibold">{title}</p><p className="mt-1 text-[11px] leading-5 text-ink-400">{text}</p></div><ArrowRight size={13} className="mt-2 shrink-0 text-ink-400" /></Link>)}
+      </div>
+
+      <div className="mb-4 flex items-center justify-between gap-3"><h2 className="flex items-center gap-2 font-display text-lg font-bold"><Settings2 size={17} className="text-ink-300" /> Platform overview</h2><span className="text-[10px] text-ink-400">{data ? `Updated ${new Date(data.generatedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}` : 'Loading analytics…'}</span></div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat icon={<Film size={18} />} label="Movies" value={t?.movies} />
@@ -57,7 +63,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-        <section className="card-surface bg-ink-800 p-5 sm:p-6">
+        <section className="card-surface min-w-0 bg-ink-800 p-5 sm:p-6">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-base font-bold">Daily activity</h2>
@@ -100,7 +106,7 @@ export default function AdminDashboard() {
           )}
         </section>
 
-        <section className="card-surface bg-ink-800 p-5 sm:p-6">
+        <section className="card-surface min-w-0 bg-ink-800 p-5 sm:p-6">
           <h2 className="font-display text-base font-bold">Catalog by category</h2>
           <p className="mb-5 text-xs text-ink-400">Titles per category (a title can sit in several)</p>
           {isLoading || !data ? <Skeleton className="h-[240px]" /> : <BarList data={data.genres.map((g) => ({ label: g.name, value: g.count }))} />}
@@ -108,7 +114,7 @@ export default function AdminDashboard() {
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <section className="card-surface p-5 sm:p-6 lg:col-span-1">
+        <section className="card-surface min-w-0 p-5 sm:p-6 lg:col-span-1">
           <h2 className="mb-4 font-display text-base font-bold">Most played · 30d</h2>
           {isLoading || !data ? (
             <Skeleton className="h-60" />
@@ -132,7 +138,7 @@ export default function AdminDashboard() {
           )}
         </section>
 
-        <section className="card-surface p-5 sm:p-6">
+        <section className="card-surface min-w-0 p-5 sm:p-6">
           <h2 className="mb-4 font-display text-base font-bold">Newest members</h2>
           {isLoading || !data ? (
             <Skeleton className="h-60" />
@@ -157,7 +163,7 @@ export default function AdminDashboard() {
           </Link>
         </section>
 
-        <section className="card-surface p-5 sm:p-6">
+        <section className="card-surface min-w-0 p-5 sm:p-6">
           <h2 className="mb-4 flex items-center gap-2 font-display text-base font-bold">
             <Search size={16} /> Top searches · 30d
           </h2>
@@ -188,7 +194,7 @@ export default function AdminDashboard() {
 
 function Stat({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value?: number; sub?: string }) {
   return (
-    <div className="card-surface p-4 sm:p-5">
+    <div className="card-surface min-w-0 p-4 sm:p-5">
       <div className="flex items-center gap-2 text-xs font-medium text-ink-300">
         <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/[0.05] text-ink-100">{icon}</span>
         {label}

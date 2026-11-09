@@ -3,6 +3,8 @@ import { config } from './config.js';
 import { db, reindexTitle } from './db.js';
 import { cards, invalidate, type Audience } from './catalog-index.js';
 import { HttpError, notFound } from './http.js';
+import { isAuthorisedVideo } from './video-policy.js';
+import { hasStudioTitles, studioPage } from './studio-catalog.js';
 
 const BASE = 'https://api.animedoc.cloud/api/v2/anime/';
 export const animedocEnabled = () => !!config.animedocApiKey;
@@ -33,18 +35,20 @@ function providerData<T extends z.ZodTypeAny>(schema: T, data: unknown): z.infer
 }
 
 async function request(endpoint: string, params: Record<string, string> = {}, body?: unknown): Promise<unknown> {
+  const apiKey = config.animedocApiKey;
   const url = new URL(endpoint, BASE);
   url.search = new URLSearchParams(params).toString();
   try {
     const response = await fetch(url, {
       method: body ? 'POST' : 'GET',
-      headers: { 'X-API-Key': config.animedocApiKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      headers: { 'X-API-Key': apiKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new HttpError(response.status === 429 ? 503 : 502,
       response.status === 429 ? 'The movie provider is busy. Please try again shortly.' : 'The movie provider could not complete this request.', 'movie_provider');
     const result = z.object({ code: z.number(), data: z.unknown() }).parse(await response.json());
+    if (apiKey !== config.animedocApiKey) throw new HttpError(503, 'The AnimeDoc connection changed. Please retry.', 'movie_provider');
     if (result.code !== 0) throw new Error('Provider error');
     return result.data;
   } catch (error) {
@@ -210,7 +214,13 @@ async function providerPage(endpoint: string, params: Record<string, string>) {
  * determines whether a genre has more titles. Animation uses its full channel,
  * including animated films, western TV animation and anime. */
 export async function browseCatalog(q: CatalogPageQuery, audience: Audience) {
-  if (!animedocEnabled()) throw new HttpError(503, 'The AnimeDoc catalog is not configured yet.', 'movie_provider');
+  const local = studioPage(q, audience);
+  const fallback = () => ({ ...local, page: q.page, pageSize: q.pageSize, nextPage: local.hasMore ? q.page + 1 : null, totalExact: true });
+  if (!animedocEnabled()) {
+    if (hasStudioTitles()) return fallback();
+    throw new HttpError(503, 'The AnimeDoc catalog is not configured yet.', 'movie_provider');
+  }
+  try {
   const sort = q.sort === 'rating' ? 'Rating' : ['newest', 'added'].includes(q.sort) ? 'Latest' : 'Hottest';
   const genre = q.genre === 'science-fiction' ? 'Sci-Fi' : q.genre?.replace(/(^|-)(\w)/g, (_s, _dash, letter: string) => ` ${letter.toUpperCase()}`).trim();
   const animation = q.genre === 'animation';
@@ -228,14 +238,16 @@ export async function browseCatalog(q: CatalogPageQuery, audience: Audience) {
       channelId, sort, page: String(q.page), perPage: String(Math.min(q.pageSize, 48)), ...(!animation && genre ? { genre } : {}),
     });
   }));
-  const items = feedCards(results.flatMap((r) => r.items), audience, q.type).filter((c) =>
+  const providerItems = feedCards(results.flatMap((r) => r.items), audience, q.type).filter((c) =>
     (!q.genre || c.genreSlugs.includes(q.genre)) && (!q.year || c.year === q.year) &&
     (!q.decade || (c.year !== null && c.year >= q.decade && c.year < q.decade + 10)) &&
     (!q.maxRuntime || (c.runtimeMin !== null && c.runtimeMin <= q.maxRuntime)) &&
     (q.language !== 'yoruba' || (db.prepare('SELECT language FROM titles WHERE id = ?').pluck().get(c.id) as string | null)?.toLowerCase() === 'yoruba'));
-  const hasMore = results.some((r) => r.pager.hasMore);
+  const items = [...local.items, ...providerItems];
+  const hasMore = local.hasMore || results.some((r) => r.pager.hasMore);
   return { items, page: q.page, pageSize: q.pageSize, hasMore, nextPage: hasMore ? q.page + 1 : null,
     total: items.length, totalExact: false };
+  } catch (error) { if (hasStudioTitles()) return fallback(); throw error; }
 }
 
 export async function discoverTitles(filters: { type?: 'movie' | 'series'; genre?: string; year?: number }) {
@@ -267,7 +279,8 @@ export async function searchMovies(keyword: string, type?: 'movie' | 'series') {
 const detailCache = new Map<string, number>();
 export async function refreshMovieDetail(slug: string) {
   if (!animedocEnabled()) return;
-  const title = db.prepare('SELECT id, provider_path, provider_edited FROM titles WHERE slug = ?').get(slug) as { id: number; provider_path: string | null; provider_edited: number } | undefined;
+  const title = db.prepare('SELECT id, external_key, provider_path, provider_edited FROM titles WHERE slug = ?').get(slug) as { id: number; external_key: string | null; provider_path: string | null; provider_edited: number } | undefined;
+  if (title && !title.external_key?.startsWith('animedoc:')) return title.id;
   const detailPath = title?.provider_path ?? (slug.startsWith('animedoc-') ? slug.slice(9) : null);
   if (!detailPath || title?.provider_edited) return title?.id;
   if (Date.now() - (detailCache.get(slug) ?? 0) < 10 * 60_000) return title?.id;
@@ -307,9 +320,23 @@ export async function refreshMovieDetail(slug: string) {
 
 interface MovieSource { id: string; url: string; kind: string; quality: string; codec: string; isPrimary: number }
 const sourceCache = new Map<string, { at: number; sources: MovieSource[] }>();
+export function resetAnimedocCaches() {
+  refreshedAt = 0;
+  searches.clear();
+  discoveries.clear();
+  detailCache.clear();
+  sourceCache.clear();
+  pageRequests.clear();
+  db.prepare('DELETE FROM catalog_feeds').run();
+  invalidate();
+}
 export async function movieSources(slug: string, episode?: { id: number; season: number; number: number }, fresh = false) {
   const title = db.prepare('SELECT id, external_key, provider_path, type FROM titles WHERE slug = ?').get(slug) as { id: number; external_key: string | null; provider_path: string | null; type: string } | undefined;
-  if (!title?.external_key?.startsWith('animedoc:')) return null;
+  if (!title) return null;
+  const editedSources = db.prepare('SELECT id, url, kind, quality, is_primary AS isPrimary FROM video_sources WHERE title_id = ? AND episode_id IS ? ORDER BY is_primary DESC, id')
+    .all(title.id, episode?.id ?? null) as { id: number; url: string; kind: string; quality: string; isPrimary: number }[];
+  if (editedSources.length) return editedSources.filter((s) => isAuthorisedVideo(s.url)).map((s) => ({ ...s, id: `editor-${s.id}`, codec: '' }));
+  if (!title.external_key?.startsWith('animedoc:')) return [];
   const cacheKey = `${slug}:${episode?.id ?? 0}`;
   const cached = sourceCache.get(cacheKey);
   if (!fresh && cached && Date.now() - cached.at < 2 * 60_000) return cached.sources;

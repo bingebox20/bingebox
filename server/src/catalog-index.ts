@@ -60,7 +60,7 @@ export function getIndex(): Index {
       `SELECT t.*,
         (SELECT COUNT(*) FROM seasons s WHERE s.title_id = t.id) AS season_count,
         (SELECT COUNT(*) FROM episodes e WHERE e.title_id = t.id) AS episode_count
-       FROM titles t WHERE t.status = 'published' AND t.external_key LIKE 'animedoc:%'`
+       FROM titles t WHERE t.status = 'published'`
     )
     .all() as Record<string, unknown>[];
   const genres = db.prepare('SELECT tg.title_id, g.slug, g.name, g.sort FROM title_genres tg JOIN genres g ON g.id = tg.genre_id ORDER BY g.sort').all() as {

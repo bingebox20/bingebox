@@ -29,7 +29,7 @@ app.disable('x-powered-by');
 if (config.trustProxy) app.set('trust proxy', 1);
 
 // Hosts the web app loads media and artwork from, for the Content Security Policy.
-const providerHosts = config.animedocApiKey ? ['https://*.aoneroom.com', 'https://*.hakunaymatata.com'] : [];
+const providerHosts = ['https://*.aoneroom.com', 'https://*.hakunaymatata.com'];
 const mediaHosts = [...config.authorisedVideoHosts.map((h) => `https://${h}`), ...providerHosts];
 const imageHosts = ['https://upload.wikimedia.org', 'https://thumb.wikimedia.org', 'https://archive.org', 'https://*.archive.org', ...providerHosts];
 

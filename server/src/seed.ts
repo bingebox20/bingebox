@@ -3,7 +3,7 @@ import { db, now } from './db.js';
 import { hashPassword } from './security.js';
 import { PUBLIC_GENRES } from './public-genres.js';
 
-/** Initialise taxonomy and the administrator. Titles come exclusively from AnimeDoc. */
+/** Initialise taxonomy and the administrator. Titles are imported or published by administrators; no samples are seeded. */
 export function initializeApp() {
   db.transaction(() => {
     PUBLIC_GENRES.forEach((g, sort) => db.prepare('INSERT OR IGNORE INTO genres (slug, name, sort) VALUES (?, ?, ?)')
