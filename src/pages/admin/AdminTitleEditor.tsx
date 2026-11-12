@@ -118,7 +118,6 @@ const SECTIONS = [
   { id: 'media', label: 'Video & subtitles' },
   { id: 'episodes', label: 'Seasons & episodes', series: true },
   { id: 'credits', label: 'Cast & crew' },
-  { id: 'rights', label: 'Rights & licensing' },
 ];
 const ROLES: Credit['role'][] = ['cast', 'director', 'writer', 'producer', 'composer', 'cinematographer'];
 const QUALITIES = ['Auto', 'Original', '2160p', '1080p', '720p', '480p', '360p', '240p'];
@@ -323,24 +322,6 @@ function Editor({ initial }: { initial: TitleForm }) {
             <CreditsEditor credits={form.credits} onChange={(v) => set('credits', v)} />
           </Section>
 
-          <Section id="rights" title="Rights & licensing" description="Shown on the title page. Keep a record of how BingeBox is authorised to stream this title.">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <SelectInput
-                label="Rights basis"
-                value={form.rightsKind}
-                onChange={(v) => set('rightsKind', v as TitleForm['rightsKind'])}
-                options={[
-                  ['licensed', 'Licensed from rights holder'],
-                  ['provider', 'Connected streaming provider'],
-                  ['public-domain', 'Public domain'],
-                  ['cc', 'Creative Commons'],
-                ]}
-              />
-              <Input label="Licence" value={form.rightsLicense} onChange={(v) => set('rightsLicense', v)} placeholder="e.g. CC BY 4.0, or contract reference" />
-              <Input label="Attribution" value={form.rightsAttribution} onChange={(v) => set('rightsAttribution', v)} placeholder="e.g. © Blender Foundation" />
-              <Input label="Source URL" value={form.rightsSourceUrl} onChange={(v) => set('rightsSourceUrl', v.trim())} placeholder="https://…" />
-            </div>
-          </Section>
         </div>
       </div>
 
